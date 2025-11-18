@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestor de WorkOrders</title>
+  <style>
+    body { font-family: Arial; margin: 20px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 6px; text-align: center; }
+    th { background: #007bff; color: white; }
+    button { cursor: pointer; padding: 4px 8px; margin: 2px; }
+    input[type="number"] { width: 60px; }
+    select { margin-left: 5px; }
+  </style>
+</head>
+<body>
+
+  <h2>Gestor de Work Orders (Master)</h2>
+  <button id="btnLogin" disabled>🔑 Iniciar sesión con Google</button>
+  <button onclick="cargarDatosDesdeSheets()">🔄 Actualizar desde Sheets</button>
+
+  <table id="tablaMaster">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Descripción</th>
+        <th>Piezas</th>
+        <th>Clasificación</th>
+        <th>Estado</th>
+        <th>Acciones</th>
+      </tr>
+    </thead>
+    <tbody id="tbodyMaster"></tbody>
+  </table>
+
+  <script src="https://apis.google.com/js/api.js"></script>
+  <script src="https://accounts.google.com/gsi/client"></script>
+
+  <script>
+    const CLIENT_ID = "TU_CLIENT_ID.apps.googleusercontent.com"; // <--- reemplaza con tu Client ID
+    const API_KEY = "TU_API_KEY"; // <--- reemplaza con tu API key
+    const SHEET_ID = "1cl_y6kFw3L8mEG8hz8iCPTv3LZ56ttdS9CatOFrhIho"; // tu ID de Sheet
+    const DISCOVERY_DOC = "https://sheets.googleapis.com/$discovery/rest?version=v4";
+    const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+
+    let gapiIniciado = false;
+    let gisIniciado = false;
+    let tokenClient;
+
+    // --------------------------
+    // Inicialización de API Google
+    function iniciarGapi() {
+      console.log("🔹 Cargando cliente de Google API...");
+      gapi.load("client", async () => {
+        await gapi.client.init({ apiKey: API_KEY, discoveryDocs: [DISCOVERY_DOC] });
+        console.log("✅ gapi.client inicializado correctamente");
+        gapiIniciado = true;
+        verificarInicio();
+      });
+    }
+
+    function iniciarGis() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: "", // se asigna dinámicamente
+      });
+      console.log("✅ tokenClient inicializado correctamente");
+      gisIniciado = true;
+      verificarInicio();
+    }
+
+    function verificarInicio() {
+      console.log("🔎 Verificando inicio:", { gapiIniciado, gisIniciado });
+      if (gapiIniciado && gisIniciado) {
+        document.getElementById("btnLogin").disabled = false;
+        console.log("✅ Botón de autenticación habilitado");
+      }
+    }
+
+    document.getElementById("btnLogin").onclick = async () => {
+      tokenClient.callback = async (resp) => {
+        if (resp.error) throw resp;
+        await cargarDatosDesdeSheets();
+      };
+      tokenClient.requestAccessToken({ prompt: "consent" });
+    };
+
+    window.onload = function () {
+      iniciarGapi();
+      iniciarGis();
+    };
+
+    // --------------------------
+    // Cargar datos desde Sheets
+    async function cargarDatosDesdeSheets() {
+      try {
+        const resp = await gapi.client.sheets.spreadsheets.values.get({
+          spreadsheetId: SHEET_ID,
+          range: "Hoja 1!A2:F",
+        });
+
+        const filas = resp.result.values;
+        if (!filas || filas.length === 0) return alert("No hay datos en la hoja.");
+
+        const workOrders = filas.map((f) => ({
+          id: f[0],
+          descripcion: f[1],
+          piezasTotales: parseInt(f[2]) || 0,
+          clasificacion: f[3] || "",
+          estado: f[4] || "",
+          historial: f[5] || "",
+          piezasAsignadas: 0,
+          piezasRestantes: parseInt(f[2]) || 0,
+        }));
+
+        localStorage.setItem("workOrders", JSON.stringify(workOrders));
+
+        // Normalizar
+        const allWOs = workOrders.map(wo => {
+          const piezasTotales = wo.piezasTotales ?? (wo.piezas ? parseInt(wo.piezas) : 0);
+          const piezasAsignadas = wo.piezasAsignadas ?? 0;
+          const piezasRestantes = wo.piezasRestantes ?? (piezasTotales - piezasAsignadas);
+          return { ...wo, piezasTotales, piezasAsignadas, piezasRestantes };
+        });
+        localStorage.setItem("workOrders", JSON.stringify(allWOs));
+
+        mostrarTablaMaster();
+        console.log("✅ Datos cargados desde Sheets");
+      } catch (err) {
+        console.error("❌ Error cargando desde Sheets:", err);
+      }
+    }
+
+    // --------------------------
+    // Mostrar tabla Master
+    function mostrarTablaMaster() {
+      const tbody = document.getElementById("tbodyMaster");
+      tbody.innerHTML = "";
+      const workOrders = JSON.parse(localStorage.getItem("workOrders")) || [];
+
+      workOrders.forEach((wo, i) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${wo.id}</td>
+          <td>${wo.descripcion}</td>
+          <td>
+            <div>${wo.piezasRestantes} / ${wo.piezasTotales}</div>
+            <input type="number" id="piezas-${i}" min="1" placeholder="cant" />
+            <select id="estacion-piezas-${i}">
+              <option value="">Enviar a...</option>
+              <option value="CNC">CNC</option>
+              <option value="Molino">Molino</option>
+              <option value="Ensamble">Ensamble</option>
+              <option value="Lija">Lija</option>
+              <option value="Pintura">Pintura</option>
+            </select>
+            <button onclick="asignarPiezas(${i})">➤</button>
+          </td>
+          <td>${wo.clasificacion}</td>
+          <td>${wo.estado}</td>
+          <td><button onclick="mostrarHistorial(${i})">📜</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // --------------------------
+    // Mostrar historial
+    function mostrarHistorial(index) {
+      const workOrders = JSON.parse(localStorage.getItem("workOrders")) || [];
+      alert(workOrders[index].historial || "Sin historial aún.");
+    }
+
+    // --------------------------
+    // Asignar piezas
+    async function asignarPiezas(index) {
+      const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+      const wo = allWOs[index];
+      if (!wo) return alert("WO no encontrada");
+
+      const inputEl = document.getElementById(`piezas-${index}`);
+      const selEl = document.getElementById(`estacion-piezas-${index}`);
+      const cantidad = parseInt(inputEl?.value || 0);
+      const estacion = selEl?.value || "";
+
+      if (!estacion) return alert("Selecciona la estación destino.");
+      if (!cantidad || cantidad <= 0) return alert("Ingresa una cantidad válida.");
+      if (cantidad > wo.piezasRestantes)
+        return alert(`Solo hay ${wo.piezasRestantes} piezas disponibles.`);
+
+      // Actualizar conteo local
+      wo.piezasAsignadas += cantidad;
+      wo.piezasRestantes -= cantidad;
+
+      // Agregar al historial
+      const timestamp = new Date().toLocaleString();
+      wo.historial = (wo.historial || "") + `\n${cantidad} piezas enviadas a ${estacion} (${timestamp})`;
+
+      allWOs[index] = wo;
+      localStorage.setItem("workOrders", JSON.stringify(allWOs));
+      mostrarTablaMaster();
+
+      // Actualizar en Sheets
+      await actualizarEnSheets(index, wo);
+
+      // Registrar en cola de estación
+      const cola = JSON.parse(localStorage.getItem(estacion)) || [];
+      cola.push({
+        id: wo.id,
+        descripcion: wo.descripcion,
+        piezas: cantidad,
+        origenIndex: index,
+        timestamp,
+        estado: "Pendiente"
+      });
+      localStorage.setItem(estacion, JSON.stringify(cola));
+
+      alert(`✅ ${cantidad} piezas enviadas a ${estacion}`);
+    }
+
+    // --------------------------
+    // Actualizar fila en Sheets
+    async function actualizarEnSheets(index, wo) {
+      try {
+        const fila = index + 2;
+        const valores = [[
+          wo.id || "",
+          wo.descripcion || "",
+          wo.piezasTotales || 0,
+          wo.clasificacion || "",
+          wo.estado || "",
+          wo.historial || "",
+          wo.piezasAsignadas || 0,
+          wo.piezasRestantes || 0
+        ]];
+
+        await gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: SHEET_ID,
+          range: `Hoja 1!A${fila}:H${fila}`,
+          valueInputOption: "RAW",
+          resource: { values: valores },
+        });
+        console.log(`✅ Fila ${fila} actualizada en Sheets`);
+      } catch (err) {
+        console.error("❌ Error al actualizar en Sheets:", err);
+      }
+    }
+  </script>
+</body>
+</html>

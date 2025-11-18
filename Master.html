@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<script> 
+
+const SHEET_ID = "1cl_y6kFw3L8mEG8hz8iCPTv3LZ56ttdS9CatOFrhIho";
+const RANGE = "Hoja 1!A:F";  // Columnas: id, descripcion, piezas, clasificacion, estado, historial
+const CLIENT_ID = "311415667077-6ub4i7j6kln40lggd8e3aaldh04ec0k0.apps.googleusercontent.com"; // OAuth 2.0
+const API_KEY = "AIzaSyC990sJS1msKWym_7rQdYwn47bTIDl1dRA";
+const SCOPES = "https://www.googleapis.com/auth/spreadsheets";
+const DISCOVERY_DOC = "https://sheets.googleapis.com/$discovery/rest?version=v4"; // 👈 AGREGA ESTA LÍNEA
+
+// Variables internas
+let tokenClient;
+let gapiIniciado = false;
+let gisIniciado = false;
+
+</script>
+  <meta charset="UTF-8">
+  <title>Panel Master - Google Sheets</title>
+  <link rel="stylesheet" href="styles.css">
+
+   <script>
+  function iniciarGoogle() {
+    console.log("🔹 Cargando cliente de Google API...");
+    gapi.load("client", async () => {
+      console.log("🔸 gapi.client cargado, inicializando...");
+      try {
+        await gapi.client.init({
+          apiKey: API_KEY,
+          discoveryDocs: [DISCOVERY_DOC],
+        });
+        console.log("✅ gapi.client inicializado correctamente");
+        gapiIniciado = true;
+        verificarInicio();
+      } catch (err) {
+        console.error("❌ Error al inicializar gapi:", err);
+      }
+    });
+  }
+
+  function iniciarTokenClient() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: (tokenResponse) => {
+        console.log("✅ Autenticación exitosa:", tokenResponse);
+      },
+    });
+    console.log("✅ tokenClient inicializado correctamente");
+    gisIniciado = true;
+    verificarInicio();
+  }
+
+  function verificarInicio() {
+    console.log("🔎 Verificando inicio:", { gapiIniciado, gisIniciado });
+    if (gapiIniciado && gisIniciado) {
+      document.getElementById("btnAuth").disabled = false;
+      console.log("✅ Botón de autenticación habilitado");
+    }
+  }
+</script>
+
+
+
+  <script src="https://apis.google.com/js/api.js"></script>
+  <!-- Google API client -->
+<script async defer src="https://apis.google.com/js/api.js" onload="iniciarGoogle()"></script>
+
+<!-- Google Identity Services -->
+<script async defer src="https://accounts.google.com/gsi/client" ></script>
+<!-- ✅ Solo una vez -->
+<script async defer src="https://accounts.google.com/gsi/client" onload="iniciarTokenClient()"></script>
+<script async defer src="https://apis.google.com/js/api.js" onload="iniciarGoogle()"></script>
+
+</head>
+<body>
+  <nav>
+
+    <a href="index.html">Dashboard</a> |
+    <a href="cnc.html">CNC</a> |
+    <a href="molino.html">Molino</a> |
+    <a href="ensamble.html">Ensamble</a> |
+    <a href="lija.html">Lija</a> |
+    <a href="pintura.html">Pintura</a>
+    <a> Acerca de</a>
+
+  </nav>
+
+  <h1>Panel Master - Asignación de Work Orders</h1>
+<input type="text" id="buscador" placeholder="Buscar WO..." onkeyup="filtrarTabla()">
+
+<script>
+function filtrarTabla() {
+  const filtro = document.getElementById("buscador").value.toLowerCase();
+  const filas = document.querySelectorAll("table tbody tr");
+
+  filas.forEach(fila => {
+    const texto = fila.textContent.toLowerCase();
+    fila.style.display = texto.includes(filtro) ? "" : "none";
+  });
+}
+</script>
+
+  <div class="acciones">
+  <button id="btnAuth" disabled onclick="tokenClient.requestAccessToken()">🔐 Conectar con Google</button>
+
+
+  <button id="btnActualizar" onclick="cargarDatosDesdeSheets()" disabled>🔄 Actualizar desde Sheets</button>
+  <button onclick="exportarReporte()">📊 Exportar Reporte Diario</button>
+
+
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Descripción</th>
+        <th>Piezas</th>
+        <th>Clasificación</th>
+        <th>Estacion asignada</th>
+        <th>Historial</th>
+        <th>Asignar estación</th>
+      </tr>
+    </thead>
+    <tbody id="tabla-master"></tbody>
+  </table>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script>
+// ===============================================
+// 🔹 CONFIGURACIÓN PRINCIPAL
+// ===============================================
+
+
+// ===============================================
+// 🔹 CARGA DE LIBRERÍAS DE GOOGLE
+// ===============================================
+function iniciarGoogle() {
+  console.log("🔹 Cargando cliente de Google API...");
+
+  gapi.load("client", async () => {
+    console.log("🔸 gapi.client cargado, inicializando...");
+    await gapi.client.init({
+      apiKey: API_KEY,
+      discoveryDocs: ["https://sheets.googleapis.com/$discovery/rest?version=v4"],
+    });
+    gapiIniciado = true;
+    console.log("✅ gapi.client inicializado correctamente");
+    verificarListo();
+  });
+
+    // Inicializa el token de autenticación
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPES,
+    callback: "",
+  });
+  gisIniciado = true;
+  console.log("✅ tokenClient inicializado correctamente");
+
+  verificarListo();
+}
+
+// ===============================================
+// 🔹 HABILITAR BOTÓN DE CONEXIÓN CUANDO TODO ESTÁ LISTO
+// ===============================================
+function verificarListo() {
+  if (gapiIniciado && gisIniciado) {
+    document.getElementById("btnAuth").disabled = false;
+  }
+}
+
+// ===============================================
+// 🔹 VERIFICAR CUANDO TODO ESTÁ LISTO
+// ===============================================
+function verificarListo() {
+  console.log("🔎 Verificando inicio:", { gapiIniciado, gisIniciado });
+  if (gapiIniciado && gisIniciado) {
+    document.getElementById("btnAuth").disabled = false;
+    console.log("✅ Botón de autenticación habilitado");
+  }
+}
+
+
+// ===============================================
+// 🔹 AUTENTICACIÓN CON GOOGLE
+// ===============================================
+function autenticarGoogle() {
+  console.log("🟢 Intentando autenticar con Google...");
+  
+  tokenClient.callback = async (resp) => {
+    if (resp.error) throw resp;
+    console.log("✅ Autenticación completada correctamente");
+    
+    document.getElementById("btnAuth").style.display = "none";
+    document.getElementById("btnActualizar").disabled = false;
+
+    await cargarDatosDesdeSheets();
+  };
+
+  if (gapi.client.getToken() === null) {
+    console.log("🟡 No hay token activo, solicitando acceso...");
+    tokenClient.requestAccessToken({ prompt: "consent" });
+  } else {
+    console.log("🔄 Token existente, renovando...");
+    tokenClient.requestAccessToken({ prompt: "" });
+  }
+}
+// ===============================================
+// 🔹 LEER DATOS DESDE GOOGLE SHEETS
+// ===============================================
+async function cargarDatosDesdeSheets() {
+  try {
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: RANGE,
+    });
+
+    const rows = response.result.values.slice(1); // omitir encabezados
+    const workOrders = rows.map(r => ({
+      id: r[0],
+      descripcion: r[1],
+      piezas: r[2],
+      clasificacion: r[3],
+      estado: r[4] || "Sin asignar",
+      historial: r[5] || "-"
+    }));
+
+    localStorage.setItem("workOrders", JSON.stringify(workOrders));
+    mostrarTablaMaster();
+    console.log("✅ Datos cargados desde Google Sheets");
+  } catch (err) {
+    console.error("❌ Error al leer Google Sheets:", err);
+    alert("⚠️ No se pudo cargar la hoja. Revisa permisos o conexión.");
+  }
+}
+
+
+// 🔹 ACTUALIZAR UNA FILA EN GOOGLE SHEETS
+
+async function actualizarEnSheets(index) {
+  try {
+    const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+    const fila = index + 2; // +2 por el encabezado y base 1
+    const wo = allWOs[index];
+
+    const valores = [[
+      wo.id, wo.descripcion, wo.piezas, wo.clasificacion, wo.estado, wo.historial
+    ]];
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: `Hoja 1!A${fila}:F${fila}`,
+      valueInputOption: "RAW",
+      resource: { values: valores },
+    });
+
+    console.log(`✅ Fila ${fila} actualizada en Google Sheets`);
+  } catch (err) {
+    console.error("❌ Error al actualizar en Sheets:", err);
+  }
+}
+
+// 🔹 ASIGNAR ESTACIÓN Y GUARDAR CAMBIOS
+
+function asignarEstacion(index) {
+  const select = document.getElementById(`select-${index}`);
+  const nueva = select.value;
+  const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+
+  if (!allWOs[index]) return;
+  allWOs[index].estado = nueva;
+  allWOs[index].estacion = nueva;
+  allWOs[index].historial =
+    (allWOs[index].historial || "") + ` → ${nueva} (${new Date().toLocaleString()})`;
+
+  localStorage.setItem("workOrders", JSON.stringify(allWOs));
+  mostrarTablaMaster();
+
+  // Actualiza la hoja remota
+  actualizarEnSheets(index);
+}
+
+// 🔹 MOSTRAR LA TABLA DE WOs
+
+function mostrarTablaMaster() {
+  const tbody = document.getElementById("tabla-master");
+  tbody.innerHTML = "";
+  const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+
+  allWOs.forEach((wo, i) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${wo.id}</td>
+      <td>${wo.descripcion}</td>
+      <td>${wo.piezas}</td>
+      <td>${wo.clasificacion}</td>
+      <td>${wo.estado}</td>
+      <td>${wo.historial}</td>
+      <td>
+        <select id="select-${i}" onchange="asignarEstacion(${i})">
+          <option value="">Seleccionar</option>
+          <option value="CNC">CNC</option>
+          <option value="Molino">Molino</option>
+          <option value="Ensamble">Ensamble</option>
+          <option value="Lija">Lija</option>
+          <option value="Pintura">Pintura</option>
+          <option value="Finalizado">Finalizado</option>
+        </select>
+      </td>`;
+      
+    tbody.appendChild(tr);
+  });
+}
+// 🔹 EXPORTAR REPORTE DIARIO (TODOS LOS ESTADOS)
+function exportarReporte() {
+  // Obtener todas las órdenes desde localStorage
+  const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+
+  if (allWOs.length === 0) {
+    return alert("No hay WOs registradas para reportar");
+  }
+
+  // Convertir todas las WOs a hoja de Excel
+  const ws = XLSX.utils.json_to_sheet(allWOs);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Reporte Diario");
+
+  // Generar nombre de archivo con fecha
+  const fecha = new Date().toLocaleDateString().replace(/\//g, "-");
+  XLSX.writeFile(wb, `Reporte_WOs_${fecha}.xlsx`);
+
+  alert("📊 Reporte generado correctamente");
+}
+
+// EXPORTAR REPORTE DIARIO
+//function exportarReporte() {
+ //const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+  //const finalizadas = allWOs.filter(w => w.estado?.toLowerCase() === "finalizado");
+
+
+  //const ws = XLSX.utils.json_to_sheet(finalizadas);
+  //const wb = XLSX.utils.book_new();
+  //XLSX.utils.book_append_sheet(wb, ws, "Reporte Diario");
+
+  //const fecha = new Date().toLocaleDateString().replace(/\//g, "-");
+  //XLSX.writeFile(wb, `Reporte_WOs_${fecha}.xlsx`);
+
+  //alert("📊 Reporte generado correctamente");
+//}
+
+
+// 🔹 MONITOREO AUTOMÁTICO DESDE GOOGLE SHEETS
+let ultimaVersion = ""; // para comparar cambios
+
+async function monitorearCambios() {
+  try {
+    // Leer hoja actual
+    const response = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: RANGE,
+    });
+
+    const nuevaVersion = JSON.stringify(response.result.values); // snapshot de datos
+
+    // Si hay diferencia con la última versión, recargar datos
+    if (nuevaVersion !== ultimaVersion) {
+      ultimaVersion = nuevaVersion;
+
+      const rows = response.result.values.slice(1);
+      const workOrders = rows.map(r => ({
+        id: r[0],
+        descripcion: r[1],
+        piezas: r[2],
+        clasificacion: r[3],
+        estado: r[4] || "Sin asignar",
+        historial: r[5] || "-"
+      }));
+
+      localStorage.setItem("workOrders", JSON.stringify(workOrders));
+      mostrarTablaMaster();
+
+      console.log("🔄 Datos actualizados automáticamente desde Sheets");
+    }
+  } catch (err) {
+    console.warn("⚠️ No se pudo actualizar automáticamente:", err.message);
+  }
+}
+
+// Inicia el monitoreo cada 10 segundos
+setInterval(() => {
+  if (gapi.client.getToken()) {
+    monitorearCambios();
+  }
+}, 10000);
+
+
+
+</script>
+
+<!-- 🔹 Librerías externas necesarias -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- Librerías de Google -->
+<script src="https://apis.google.com/js/api.js" onload="iniciarGoogle()"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+
+
+</body>
+</html>

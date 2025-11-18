@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Detalle de WO</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .detalle-container {
+      width: 80%;
+      margin: 30px auto;
+      background: white;
+      border-radius: 10px;
+      padding: 25px;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    .info {
+      line-height: 1.8;
+      font-size: 16px;
+    }
+
+    .progreso-container {
+      margin-top: 25px;
+    }
+
+    .barra {
+      background-color: #e5e7eb;
+      border-radius: 25px;
+      overflow: hidden;
+      height: 25px;
+      margin-top: 10px;
+    }
+
+    .progreso {
+      height: 100%;
+      background: linear-gradient(90deg, #2563eb, #60a5fa);
+      width: 0%;
+      border-radius: 25px;
+      transition: width 0.5s ease;
+    }
+
+    .estaciones {
+      display: flex;
+      justify-content: space-between;
+      font-size: 14px;
+      margin-top: 8px;
+      color: #374151;
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="index.html">Dashboard</a> |
+    <a href="master.html">Panel Master</a>
+  </nav>
+
+  <div class="detalle-container">
+    <h1>Detalle de WO</h1>
+    <div class="info">
+      <p><strong>ID:</strong> <span id="woId"></span></p>
+      <p><strong>Descripción:</strong> <span id="woDesc"></span></p>
+      <p><strong>Piezas:</strong> <span id="woPiezas"></span></p>
+      <p><strong>Clasificación:</strong> <span id="woClasif"></span></p>
+      <p><strong>Estado Actual:</strong> <span id="woEstado"></span></p>
+    </div>
+
+    <div class="progreso-container">
+      <h3>Progreso del proceso:</h3>
+      <div class="barra">
+        <div id="barraProgreso" class="progreso"></div>
+      </div>
+      <div class="estaciones">
+        <span>Pendiente</span>
+        <span>CNC</span>
+        <span>Molino</span>
+        <span>Ensamble</span>
+        <span>Lija</span>
+        <span>Pintura</span>
+        <span>Terminado</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const params = new URLSearchParams(window.location.search);
+      const id = params.get("id");
+
+      if (!id) {
+        document.body.innerHTML = "<h2 style='text-align:center'>No se especificó una WO.</h2>";
+        return;
+      }
+
+      const data = obtenerWO();
+      const wo = data.find(w => w.id === id);
+
+      if (!wo) {
+        document.body.innerHTML = "<h2 style='text-align:center'>WO no encontrada.</h2>";
+        return;
+      }
+
+      document.getElementById("woId").textContent = wo.id;
+      document.getElementById("woDesc").textContent = wo.descripcion;
+      document.getElementById("woPiezas").textContent = wo.piezas;
+      document.getElementById("woClasif").textContent = wo.clasificacion;
+      document.getElementById("woEstado").textContent = wo.estado;
+
+      // --- Progreso dinámico ---
+      const flujo = ["pendiente", "CNC", "Molino", "Ensamble", "Lija", "Pintura", "Terminado"];
+      const index = flujo.indexOf(wo.estado);
+      const porcentaje = ((index + 1) / flujo.length) * 100;
+
+      const barra = document.getElementById("barraProgreso");
+      barra.style.width = `${porcentaje}%`;
+    });
+  </script>
+</body>
+</html>
