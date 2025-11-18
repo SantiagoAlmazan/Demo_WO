@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Estación Pintura</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <nav>
+    <a href="index.html">🏠 Dashboard</a> |
+    <a href="master.html">Master</a>
+  </nav>
+
+  <h1>🎨 Estación Pintura</h1>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Descripción</th>
+        <th>Piezas</th>
+        <th>Clasificación</th>
+        <th>Estación actual</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody id="tabla-pintura"></tbody>
+  </table>
+
+  <script src="script.js"></script>
+  <script>
+    function actualizarTablaPintura() {
+      const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+      const tbody = document.getElementById("tabla-pintura");
+      tbody.innerHTML = "";
+
+      allWOs
+        .filter(wo => wo.estado === "Pintura")
+        .forEach(wo => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${wo.id}</td>
+            <td>${wo.descripcion}</td>
+            <td>${wo.piezas}</td>
+            <td>${wo.clasificacion}</td>
+            <td>${wo.estado}</td>
+            <td>
+              <select onchange="moverWO('${wo.id}', this.value)">
+                <option value="">Mover a...</option>
+                <option value="Finalizado">Finalizado</option>
+              </select>
+            </td>
+          `;
+          tbody.appendChild(tr);
+        });
+    }
+
+    function moverWO(id, nuevaEstacion) {
+      if (!nuevaEstacion) return;
+      const clave = prompt("Ingrese la contraseña del encargado:");
+      if (clave !== "123") return alert("❌ Contraseña incorrecta");
+
+      const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+      const wo = allWOs.find(w => w.id === id);
+      if (wo) {
+        wo.estado = nuevaEstacion;
+        localStorage.setItem("workOrders", JSON.stringify(allWOs));
+        alert(`✅ La WO ${id} ha sido movida a ${nuevaEstacion}`);
+        actualizarTablaPintura();
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", actualizarTablaPintura);
+  </script>
+
+
+</body>
+</html>

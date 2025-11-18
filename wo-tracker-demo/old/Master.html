@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Panel Master (Excel Sincronizado)</title>
+  <link rel="stylesheet" href="styles.css">
+ 
+</head>
+<body>
+  <nav>
+    <a href="index.html">Dashboard</a> |
+    <a href="cnc.html">CNC</a> |
+    <a href="molino.html">Molino</a> |
+    <a href="ensamble.html">Ensamble</a> |
+    <a href="lija.html">Lija</a> |
+    <a href="pintura.html">Pintura</a>
+  </nav>
+<style>
+10px;
+      align-items: center;
+    }
+    .top-buttons button {
+      background-color: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .top-buttons button:hover {
+      background-color: #0056b3;
+    }
+
+</style>
+  <h1>Panel Master</h1>
+
+  <div class="top-buttons">
+    <button id="vincularExcel">📂 Vincular Excel</button>
+    <button id="actualizarExcel">🔄 Actualizar Manualmente</button>
+    <span id="last-sync">Última sincronización: --</span>
+  </div>
+
+  <table id="tablaMaster">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Descripción</th>
+        <th>Piezas</th>
+        <th>Clasificación</th>
+        <th>Estado</th>
+        <th>Acción</th>
+      </tr>
+    </thead>
+    <tbody id="tabla-master"></tbody>
+  </table>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script>
+    let excelFileHandle = null;
+    let syncInterval = null;
+
+    // === BOTÓN PARA VINCULAR ARCHIVO ===
+    document.getElementById("vincularExcel").addEventListener("click", async () => {
+      [excelFileHandle] = await window.showOpenFilePicker({
+        types: [{ description: "Excel Files", accept: { "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": [".xlsx"] } }]
+      });
+
+      if (excelFileHandle) {
+        alert("✅ Archivo Excel vinculado correctamente.");
+        iniciarSincronizacion();
+      }
+    });
+
+    // === ACTUALIZAR MANUAL ===
+    document.getElementById("actualizarExcel").addEventListener("click", leerYActualizarExcel);
+
+    // === FUNCIÓN PRINCIPAL PARA LEER EL EXCEL ===
+    async function leerYActualizarExcel() {
+      try {
+        if (!excelFileHandle) {
+          alert("⚠️ Primero debes vincular un archivo Excel.");
+          return;
+        }
+
+        const file = await excelFileHandle.getFile();
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = XLSX.read(arrayBuffer, { type: "array" });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const jsonData = XLSX.utils.sheet_to_json(firstSheet);
+
+        // Actualiza localStorage
+        let existentes = JSON.parse(localStorage.getItem("workOrders")) || [];
+        jsonData.forEach(nueva => {
+          const index = existentes.findIndex(w => w.id == nueva.id);
+          if (index >= 0) {
+            existentes[index] = { ...existentes[index], ...nueva };
+          } else {
+            existentes.push(nueva);
+          }
+        });
+
+        localStorage.setItem("workOrders", JSON.stringify(existentes));
+        mostrarTabla(existentes);
+        actualizarHoraSync();
+
+      } catch (error) {
+        console.error("Error al leer Excel:", error);
+        alert("⚠️ Error al leer el archivo Excel.");
+      }
+    }
+
+    // === MUESTRA TABLA ===
+    function mostrarTabla(data) {
+      const tbody = document.getElementById("tabla-master");
+      tbody.innerHTML = "";
+      if (data.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6">No hay WO's registradas</td></tr>`;
+        return;
+      }
+      data.forEach(wo => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${wo.id}</td>
+          <td>${wo.descripcion}</td>
+          <td>${wo.piezas}</td>
+          <td>${wo.clasificacion}</td>
+          <td>${wo.estado || 'Sin asignar'}</td>
+          <td><button class="asignar-btn" onclick="asignarEstacion('${wo.id}')">Asignar</button></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // === ASIGNAR ESTACIÓN ===
+    function asignarEstacion(id) {
+      const estacion = prompt("¿A qué estación deseas asignar la WO?");
+      if (!estacion) return;
+      let data = JSON.parse(localStorage.getItem("workOrders")) || [];
+      const index = data.findIndex(wo => wo.id === id);
+      if (index >= 0) {
+        data[index].estado = estacion;
+        localStorage.setItem("workOrders", JSON.stringify(data));
+        mostrarTabla(data);
+      }
+    }
+
+    // === SINCRONIZACIÓN AUTOMÁTICA ===
+    function iniciarSincronizacion() {
+      if (syncInterval) clearInterval(syncInterval);
+      leerYActualizarExcel(); // Primera carga inmediata
+      syncInterval = setInterval(leerYActualizarExcel, 30000); // Cada 30 segundos
+      console.log("⏱️ Sincronización automática activada cada 30s");
+    }
+
+    // === ACTUALIZAR HORA DE SINCRONIZACIÓN ===
+    function actualizarHoraSync() {
+      const now = new Date();
+      document.getElementById("last-sync").textContent =
+        "Última sincronización: " + now.toLocaleTimeString();
+    }
+
+    // === CARGA INICIAL ===
+    document.addEventListener("DOMContentLoaded", () => {
+      const data = JSON.parse(localStorage.getItem("workOrders")) || [];
+      mostrarTabla(data);
+    });
+  </script>
+</body>
+</html>
+

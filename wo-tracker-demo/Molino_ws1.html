@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Molino - WS1</title>
+   <link rel="stylesheet" href="styles.css">
+
+</head>
+<body>
+     <nav>
+    <a href="index.html">Dashboard</a> 
+    <a href="Molino.html">Molino</a> 
+  </nav>
+  <h2>Work Station 1 - Molino</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Descripción</th>
+        <th>Piezas</th>
+        <th>Inicio</th>
+        <th>Fin</th>
+        <th>Tiempo Transcurrido</th>
+        <th>Tiempo Estimado</th>
+      </tr>
+    </thead>
+    <tbody id="tabla-ws1"></tbody>
+  </table>
+
+  <script>
+    function cargarWS1() {
+  const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+  const tbody = document.getElementById("tabla-ws1");
+  tbody.innerHTML = "";
+
+  allWOs
+  .filter(wo => wo.estacionAsignada === "WS1")
+  .forEach(wo => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${wo.id}</td>
+      <td>${wo.descripcion}</td>
+      <td>${wo.piezas}</td>
+      <td><button onclick="iniciarTrabajoPorID('${wo.id}')">Iniciar</button></td>
+      <td><button onclick="finalizarTiempo('${wo.id}')">Finalizar</button></td>
+      <td><span id="tiempo_${wo.id}">00:00:00</span></td>
+      <td></td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+}
+
+function iniciarTrabajoPorID(id) {
+    const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+    const wo = allWOs.find(x => x.id === id);
+    if (!wo) return;
+
+    const ahora = Date.now();
+
+    // Guardamos el timestamp correcto
+    wo.inicioTimestamp = ahora;
+    localStorage.setItem("workOrders", JSON.stringify(allWOs));
+
+    // Guardamos también para el cronómetro
+    localStorage.setItem("woSeleccionada", id);
+    localStorage.setItem("inicioTiempo_WS1", ahora);
+
+    // Reseteamos el cronómetro viejo
+    if (intervaloCronometro) clearInterval(intervaloCronometro);
+
+    iniciarCronometro(id);
+}
+
+function iniciarCronometro(id) {
+    localStorage.setItem("woSeleccionada", id);
+
+    if (intervaloCronometro) clearInterval(intervaloCronometro);
+
+    intervaloCronometro = setInterval(actualizarCronometro, 1000);
+}
+
+let inicioTiempo = null;
+let intervaloCronometro = null;
+
+// ---- Iniciar ----
+function iniciarTrabajo(indexWO) {
+  if (intervaloCronometro) return; // ya está corriendo
+
+  inicioTiempo = Date.now();
+  localStorage.setItem("inicioTiempo_WS1", inicioTiempo);
+
+  intervaloCronometro = setInterval(actualizarCronometro, 1000);
+}
+
+// ---- Actualizar en pantalla ----
+function actualizarCronometro() {
+  const inicio = localStorage.getItem("inicioTiempo_WS1");
+  if (!inicio) return;
+
+  const diff = Date.now() - parseInt(inicio);
+  const h = Math.floor(diff / 3600000);
+  const m = Math.floor((diff % 3600000) / 60000);
+  const s = Math.floor((diff % 60000) / 1000);
+
+  const id = localStorage.getItem("woSeleccionada");
+  const span = document.getElementById(`tiempo_${id}`);
+
+  if (span) {
+    span.textContent =
+      `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+  }
+}
+
+
+// ---- Finalizar + enviar a Sheets ----
+async function finalizarTrabajo(indexWO) {
+  const inicio = localStorage.getItem("inicioTiempo_WS1");
+  if (!inicio) return;
+
+  const tiempoTotal = Date.now() - parseInt(inicio);
+  const horas = (tiempoTotal / 3600000).toFixed(2); // ej. 1.24 horas
+
+  await actualizarTiempoWS(indexWO, horas); // ⏳ SE MANDA A SHEETS COLUMNA H
+
+  clearInterval(intervaloCronometro);
+  intervaloCronometro = null;
+  localStorage.removeItem("inicioTiempo_WS1");
+}
+
+function iniciarTiempo(id) {
+  let allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+  const index = allWOs.findIndex(w => w.id === id);
+  if (index >= 0) {
+    allWOs[index].inicio = Date.now();
+    localStorage.setItem("workOrders", JSON.stringify(allWOs));
+    cargarWS1();
+
+    
+  }
+}
+async function actualizarTiempoWS1EnSheets(id, tiempo) {
+  try {
+    // Leer todas las filas de Sheets para buscar el ID
+    const res = await gapi.client.sheets.spreadsheets.values.get({
+      spreadsheetId: SHEET_ID,
+      range: "Hoja 1!A:A"  // Columna A donde está el ID
+    });
+
+    const filas = res.result.values || [];
+
+    // Buscar en qué fila está este ID
+    let filaEncontrada = null;
+    for (let i = 0; i < filas.length; i++) {
+      if (filas[i][0] == id) {
+        filaEncontrada = i + 1; // base 1
+        break;
+      }
+    }
+
+    if (!filaEncontrada) {
+      console.error("❌ ID no encontrado en Sheets:", id);
+      return;
+    }
+
+    // Columna H = 8
+    const range = `Hoja 1!I${filaEncontrada}:I${filaEncontrada}`;
+
+    await gapi.client.sheets.spreadsheets.values.update({
+      spreadsheetId: SHEET_ID,
+      range: range,
+      valueInputOption: "RAW",
+      resource: { values: [[tiempo]] }
+    });
+
+    console.log(`⏳ Tiempo WS1 guardado en Sheets para ID ${id}`);
+  } catch (e) {
+    console.error("❌ Error al guardar tiempo WS1 en Sheets:", e);
+  }
+}
+
+function finalizarTiempo(id) {
+  let allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+  const index = allWOs.findIndex(w => w.id === id);
+  if (index >= 0) {
+    allWOs[index].fin = Date.now();
+    const tiempo = Math.round((allWOs[index].fin - allWOs[index].inicio) / 60000);
+    allWOs[index].tiempoWS1 = tiempo;
+    allWOs[index].tiempoTotal = (allWOs[index].tiempoTotal || 0) + tiempo;
+
+
+        actualizarTiempoWS1EnSheets(id, tiempo);
+
+    // 🔹 Regresar a Molino
+    allWOs[index].inicio = null;
+    allWOs[index].fin = null;
+    allWOs[index].estacionAsignada = null;
+    allWOs[index].estado = "Molino";
+
+    localStorage.setItem("workOrders", JSON.stringify(allWOs));
+    cargarWS1();
+  }
+}
+
+function finalizarWS1(id) {
+  const allWOs = JSON.parse(localStorage.getItem("workOrders")) || [];
+  const wo = allWOs.find(w => w.id === id);
+  if (!wo || !wo.inicioTimestamp) return;
+
+  const diffMS = Date.now() - wo.inicioTimestamp;
+  const diffMin = Math.round(diffMS / 60000);
+
+  // Guardar tiempo de WS1
+  wo.tiempoWS1 = (wo.tiempoWS1 || 0) + diffMin;
+
+  // Sumar al tiempo total
+  wo.tiempoTotal = (wo.tiempoTotal || 0) + diffMin;
+
+  // Reset
+  wo.enProceso = false;
+  wo.inicioTimestamp = null;
+  wo.estacionAsignada = null;
+  wo.estado = "Molino";
+
+  localStorage.removeItem("woActiva_WS1");
+  if (intervalo) clearInterval(intervalo);
+
+  localStorage.setItem("workOrders", JSON.stringify(allWOs));
+  cargarWS1();
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  cargarWS1();
+
+  const activa = localStorage.getItem("woActiva_WS1");
+  if (activa) {
+    if (intervalo) clearInterval(intervalo);
+    intervalo = setInterval(actualizarCronometro, 1000);
+  }
+});
+document.addEventListener("DOMContentLoaded", cargarWS1);
+
+
+  </script>
+
+</body>
+</html>
